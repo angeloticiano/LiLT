@@ -3,7 +3,10 @@ from typing import Dict, Optional, Tuple
 
 import torch
 
-from transformers.file_utils import ModelOutput
+try:
+    from transformers.file_utils import ModelOutput  # transformers <5
+except ImportError:
+    from transformers.utils import ModelOutput  # transformers 5+
 
 
 @dataclass

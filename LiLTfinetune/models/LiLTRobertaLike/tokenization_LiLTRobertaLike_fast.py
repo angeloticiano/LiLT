@@ -1,6 +1,9 @@
 # coding=utf-8
 from transformers import RobertaTokenizerFast, XLMRobertaTokenizerFast
-from transformers.file_utils import is_sentencepiece_available
+try:
+    from transformers.file_utils import is_sentencepiece_available  # transformers <5
+except ImportError:
+    from transformers.utils import is_sentencepiece_available  # transformers 5+
 from transformers.utils import logging
 
 
@@ -14,7 +17,9 @@ logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "sentencepiece.bpe.model", "tokenizer_file": "tokenizer.json"}
 
-with open('tag.txt', 'r') as tagf:
+import os as _os
+_tag_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..', 'tag.txt')
+with open(_tag_path, 'r') as tagf:
     TAG = tagf.read().lower()
 assert TAG == 'monolingual' or TAG == 'multilingual', 'TAG is wrong. It should be monolingual or multilingual.'
 

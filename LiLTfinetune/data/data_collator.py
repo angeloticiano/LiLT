@@ -3,9 +3,29 @@ from typing import Optional, Union
 
 import torch
 
-from detectron2.structures import ImageList
+# PATCH: substituir detectron2.ImageList por implementação simples (evita instalar detectron2)
+class ImageList:
+    """Minimal substitute for detectron2.structures.ImageList."""
+    def __init__(self, tensor, image_sizes):
+        self.tensor = tensor
+        self.image_sizes = image_sizes
+
+    @staticmethod
+    def from_tensors(tensors, size_divisibility=0):
+        import torch
+        max_size = [max(s) for s in zip(*[t.shape for t in tensors])]
+        if size_divisibility > 1:
+            import math
+            max_size = [int(math.ceil(s / size_divisibility) * size_divisibility) for s in max_size]
+        batched = torch.zeros(len(tensors), *max_size, dtype=tensors[0].dtype)
+        for i, t in enumerate(tensors):
+            batched[i, :t.shape[0], :t.shape[1], :t.shape[2]].copy_(t)
+        return ImageList(batched, [t.shape[-2:] for t in tensors])
 from transformers import PreTrainedTokenizerBase
-from transformers.file_utils import PaddingStrategy
+try:
+    from transformers.file_utils import PaddingStrategy  # transformers <5
+except ImportError:
+    from transformers.utils import PaddingStrategy  # transformers 5+
 
 
 @dataclass

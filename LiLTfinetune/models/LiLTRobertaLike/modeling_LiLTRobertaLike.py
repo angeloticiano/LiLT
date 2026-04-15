@@ -5,12 +5,20 @@ import torch.nn as nn
 import torch.utils.checkpoint
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from transformers.activations import ACT2FN, gelu
-from transformers.file_utils import (
-    add_code_sample_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    replace_return_docstrings,
-)
+try:
+    from transformers.file_utils import (  # transformers <5
+        add_code_sample_docstrings,
+        add_start_docstrings,
+        add_start_docstrings_to_model_forward,
+        replace_return_docstrings,
+    )
+except ImportError:
+    from transformers.utils import (  # transformers 5+
+        add_code_sample_docstrings,
+        add_start_docstrings,
+        add_start_docstrings_to_model_forward,
+        replace_return_docstrings,
+    )
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions,
     BaseModelOutputWithPoolingAndCrossAttentions,
@@ -21,12 +29,19 @@ from transformers.modeling_outputs import (
     SequenceClassifierOutput,
     TokenClassifierOutput,
 )
-from transformers.modeling_utils import (
-    PreTrainedModel,
-    apply_chunking_to_forward,
-    find_pruneable_heads_and_indices,
-    prune_linear_layer,
-)
+from transformers.modeling_utils import PreTrainedModel
+try:
+    from transformers.modeling_utils import (  # transformers <5
+        apply_chunking_to_forward,
+        find_pruneable_heads_and_indices,
+        prune_linear_layer,
+    )
+except ImportError:
+    from transformers.pytorch_utils import (  # transformers 5+
+        apply_chunking_to_forward,
+        find_pruneable_heads_and_indices,
+        prune_linear_layer,
+    )
 from transformers.utils import logging
 from .configuration_LiLTRobertaLike import LiLTRobertaLikeConfig
 
@@ -650,6 +665,7 @@ class LiLTRobertaLikePreTrainedModel(PreTrainedModel):
     """
     config_class = LiLTRobertaLikeConfig
     base_model_prefix = "liltrobertalike"
+    _all_tied_weights_keys: list = []  # required for transformers 5.x
     def _init_weights(self, module):
         """Initialize the weights"""
         if isinstance(module, nn.Linear):
@@ -902,7 +918,10 @@ class LiLTRobertaLikeForTokenClassification(LiLTRobertaLikePreTrainedModel):
 
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
-from transformers.file_utils import ModelOutput
+try:
+    from transformers.file_utils import ModelOutput  # transformers <5
+except ImportError:
+    from transformers.utils import ModelOutput  # transformers 5+
 from ...modules.decoders.re import REDecoder
 from ...utils import ReOutput
 

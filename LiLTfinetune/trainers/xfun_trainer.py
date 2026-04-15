@@ -8,7 +8,13 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from transformers.utils import logging
-from transformers.file_utils import is_sagemaker_mp_enabled
+try:
+    from transformers.file_utils import is_sagemaker_mp_enabled  # transformers <5
+except ImportError:
+    try:
+        from transformers.utils import is_sagemaker_mp_enabled  # transformers 5+
+    except ImportError:
+        def is_sagemaker_mp_enabled(): return False  # removed in some versions
 from transformers.trainer_utils import EvalPrediction, PredictionOutput, speed_metrics, ShardedDDPOption
 from transformers.trainer_pt_utils import get_parameter_names
 from transformers.optimization import Adafactor, AdamW, get_scheduler
@@ -42,7 +48,9 @@ class XfunReTrainer(FunsdTrainer):
         inputs = self._prepare_inputs(inputs)
 
         with torch.no_grad():
-            if self.use_amp:
+            # PATCH: use_amp renomeado para use_apex no transformers>=4.10
+            _use_amp = getattr(self, 'use_amp', False) or getattr(self, 'use_apex', False)
+            if _use_amp:
                 with autocast():
                     outputs = model(**inputs)
             else:
@@ -178,7 +186,11 @@ class XfunReTrainer(FunsdTrainer):
 
         self.args.local_rank = -1
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
-        self.args.local_rank = torch.distributed.get_rank()
+        # PATCH: get_rank() falha em single-GPU sem init; usar -1 (não distribuído)
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            self.args.local_rank = torch.distributed.get_rank()
+        else:
+            self.args.local_rank = -1
 
         start_time = time.time()
 
