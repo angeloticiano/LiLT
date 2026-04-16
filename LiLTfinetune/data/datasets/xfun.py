@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 
 _URL = "https://github.com/doc-analysis/XFUN/releases/download/v1.0/"
 
-_LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt", "boleto_test"]
+_LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt", "boleto_test", "synth_pt"]
 logger = logging.getLogger(__name__)
 
 
