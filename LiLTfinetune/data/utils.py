@@ -1,7 +1,8 @@
 import torch
+import numpy as np
+from PIL import Image
 
-from detectron2.data.detection_utils import read_image
-from detectron2.data.transforms import ResizeTransform, TransformList
+# PATCH: substituir detectron2 por PIL + numpy (evita instalar detectron2)
 
 
 def normalize_bbox(bbox, size):
@@ -28,9 +29,13 @@ def merge_bbox(bbox_list):
 
 
 def load_image(image_path):
-    image = read_image(image_path, format="BGR")
-    h = image.shape[0]
-    w = image.shape[1]
-    img_trans = TransformList([ResizeTransform(h=h, w=w, new_h=224, new_w=224)])
-    image = torch.tensor(img_trans.apply_image(image).copy()).permute(2, 0, 1)  # copy to make it writeable
+    # Ler em BGR (igual ao detectron2.read_image com format="BGR")
+    pil_img = Image.open(image_path).convert("RGB")
+    w, h = pil_img.size
+    # Redimensionar para 224x224
+    pil_img = pil_img.resize((224, 224), Image.BILINEAR)
+    # Converter para numpy BGR
+    image_np = np.array(pil_img)[:, :, ::-1]  # RGB -> BGR
+    # Tensor CHW
+    image = torch.tensor(image_np.copy()).permute(2, 0, 1)
     return image, (w, h)

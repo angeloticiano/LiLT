@@ -9,7 +9,9 @@ SPIECE_UNDERLINE = "▁"
 
 VOCAB_FILES_NAMES = {"vocab_file": "sentencepiece.bpe.model"}
 
-with open('tag.txt', 'r') as tagf:
+import os as _os
+_tag_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..', 'tag.txt')
+with open(_tag_path, 'r') as tagf:
     TAG = tagf.read().lower()
 assert TAG == 'monolingual' or TAG == 'multilingual', 'TAG is wrong. It should be monolingual or multilingual.'
 
