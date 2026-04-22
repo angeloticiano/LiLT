@@ -119,29 +119,152 @@ def main():
 
     # Load pretrained model and tokenizer
     #
-    # Distributed training:
-    # The .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=num_labels,
-        finetuning_task=data_args.task_name,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
+    # PATCH: SCUT-DLVCLab/lilt-infoxlm-base usa LiltConfig (HF oficial) mas o código
+    # jpWang espera LiLTRobertaLikeConfig. Carregamos os pesos manualmente com remapeamento
+    # de keys (HF usa raiz, jpWang usa prefixo 'lilt.').
+    from LiLTfinetune.models.LiLTRobertaLike import LiLTRobertaLikeConfig, LiLTRobertaLikeForRelationExtraction
+    from huggingface_hub import hf_hub_download
+    import torch as _torch
+
+    _hf_model_id = model_args.model_name_or_path
+    _is_hf_hub = not os.path.isdir(_hf_model_id)
+
+    if _is_hf_hub:
+        # Baixar config do HF para pegar os hiperparâmetros
+        _hf_config = AutoConfig.from_pretrained(
+            _hf_model_id,
+            cache_dir=model_args.cache_dir,
+            use_auth_token=True if model_args.use_auth_token else None,
+        )
+        config = LiLTRobertaLikeConfig(
+            num_labels=num_labels,
+            finetuning_task=data_args.task_name,
+            vocab_size=_hf_config.vocab_size,
+            hidden_size=_hf_config.hidden_size,
+            num_hidden_layers=_hf_config.num_hidden_layers,
+            num_attention_heads=_hf_config.num_attention_heads,
+            intermediate_size=_hf_config.intermediate_size,
+            hidden_act=_hf_config.hidden_act,
+            hidden_dropout_prob=_hf_config.hidden_dropout_prob,
+            attention_probs_dropout_prob=_hf_config.attention_probs_dropout_prob,
+            max_position_embeddings=_hf_config.max_position_embeddings,
+            type_vocab_size=_hf_config.type_vocab_size,
+            initializer_range=_hf_config.initializer_range,
+            layer_norm_eps=_hf_config.layer_norm_eps,
+            pad_token_id=_hf_config.pad_token_id,
+            bos_token_id=_hf_config.bos_token_id,
+            eos_token_id=_hf_config.eos_token_id,
+            channel_shrink_ratio=getattr(_hf_config, 'channel_shrink_ratio', 4),
+            max_2d_position_embeddings=getattr(_hf_config, 'max_2d_position_embeddings', 1024),
+        )
+        # Instanciar modelo com pesos aleatórios
+        model = LiLTRobertaLikeForRelationExtraction(config)
+        # Baixar e carregar pesos do HF, remapeando 'raiz.' -> 'lilt.'
+        _ckpt_path = hf_hub_download(
+            _hf_model_id, 'pytorch_model.bin',
+            cache_dir=model_args.cache_dir,
+        )
+        _hf_state = _torch.load(_ckpt_path, map_location='cpu')
+        _model_state = model.state_dict()
+        _new_state = {}
+        for k, v in _hf_state.items():
+            _new_key = 'lilt.' + k
+            if _new_key in _model_state:
+                _new_state[_new_key] = v
+            else:
+                logger.warning(f"PATCH: key ignorada (não encontrada no modelo): {k}")
+        _missing = [k for k in _model_state if k not in _new_state]
+        logger.info(f"PATCH: {len(_new_state)} keys carregadas do HF, {len(_missing)} inicializadas aleatoriamente (head RE)")
+        _model_state.update(_new_state)
+        model.load_state_dict(_model_state)
+    else:
+        # Checkpoint local — verificar se é LiLTRobertaLike (salvo pelo training loop do jpWang)
+        import json as _json
+        _local_config_path = os.path.join(model_args.model_name_or_path, "config.json")
+        with open(_local_config_path) as _f:
+            _local_cfg_dict = _json.load(_f)
+        if _local_cfg_dict.get("model_type") == "liltrobertalike":
+            config = LiLTRobertaLikeConfig(
+                num_labels=num_labels,
+                finetuning_task=data_args.task_name,
+                **{k: v for k, v in _local_cfg_dict.items()
+                   if k not in ("model_type", "architectures", "transformers_version",
+                                "id2label", "label2id", "finetuning_task")},
+            )
+            model = LiLTRobertaLikeForRelationExtraction(config)
+            import torch as _torch
+            _ckpt = os.path.join(model_args.model_name_or_path, "pytorch_model.bin")
+            _state = _torch.load(_ckpt, map_location="cpu")
+            model.load_state_dict(_state)
+            logger.info(f"Checkpoint local LiLTRobertaLike carregado de {_ckpt}")
+        elif _local_cfg_dict.get("model_type") == "lilt":
+            # PATCH RE: checkpoint local veio do SER treinado com AutoModelForTokenClassification (HF lilt nativo).
+            # Transferimos os pesos do backbone para LiLTRobertaLikeForRelationExtraction com remap 'lilt.*' → 'lilt.*'
+            # (no HF, o LiltForTokenClassification tem prefixo 'lilt.' no body + 'classifier.' no head).
+            # O head RE (relation extraction) é inicializado aleatoriamente.
+            config = LiLTRobertaLikeConfig(
+                num_labels=num_labels,
+                finetuning_task=data_args.task_name,
+                vocab_size=_local_cfg_dict["vocab_size"],
+                hidden_size=_local_cfg_dict["hidden_size"],
+                num_hidden_layers=_local_cfg_dict["num_hidden_layers"],
+                num_attention_heads=_local_cfg_dict["num_attention_heads"],
+                intermediate_size=_local_cfg_dict["intermediate_size"],
+                hidden_act=_local_cfg_dict["hidden_act"],
+                hidden_dropout_prob=_local_cfg_dict["hidden_dropout_prob"],
+                attention_probs_dropout_prob=_local_cfg_dict["attention_probs_dropout_prob"],
+                max_position_embeddings=_local_cfg_dict["max_position_embeddings"],
+                type_vocab_size=_local_cfg_dict["type_vocab_size"],
+                initializer_range=_local_cfg_dict["initializer_range"],
+                layer_norm_eps=_local_cfg_dict["layer_norm_eps"],
+                pad_token_id=_local_cfg_dict["pad_token_id"],
+                bos_token_id=_local_cfg_dict["bos_token_id"],
+                eos_token_id=_local_cfg_dict["eos_token_id"],
+                channel_shrink_ratio=_local_cfg_dict.get("channel_shrink_ratio", 4),
+                max_2d_position_embeddings=_local_cfg_dict.get("max_2d_position_embeddings", 1024),
+            )
+            model = LiLTRobertaLikeForRelationExtraction(config)
+            import torch as _torch
+            _ckpt = os.path.join(model_args.model_name_or_path, "pytorch_model.bin")
+            _hf_state = _torch.load(_ckpt, map_location="cpu")
+            _model_state = model.state_dict()
+            _new_state = {}
+            for k, v in _hf_state.items():
+                # HF LiltForTokenClassification salva: 'lilt.<body>' + 'classifier.<head>'
+                # jpWang LiLTRobertaLikeForRelationExtraction espera: 'lilt.<body>' + 'extractor.<head RE>'
+                # Pulamos 'classifier.*' (head SER não serve para RE)
+                if k.startswith("classifier."):
+                    continue
+                if k in _model_state:
+                    _new_state[k] = v
+                else:
+                    logger.warning(f"PATCH RE: key ignorada (não no modelo): {k}")
+            _missing = [k for k in _model_state if k not in _new_state]
+            logger.info(f"PATCH RE: {len(_new_state)} keys carregadas do SER HF, {len(_missing)} inicializadas aleatoriamente (head RE + eventuais)")
+            _model_state.update(_new_state)
+            model.load_state_dict(_model_state)
+        else:
+            config = AutoConfig.from_pretrained(
+                model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+                num_labels=num_labels,
+                finetuning_task=data_args.task_name,
+                cache_dir=model_args.cache_dir,
+                revision=model_args.model_revision,
+                use_auth_token=True if model_args.use_auth_token else None,
+            )
+            model = AutoModelForRelationExtraction.from_pretrained(
+                model_args.model_name_or_path,
+                from_tf=bool(".ckpt" in model_args.model_name_or_path),
+                config=config,
+                cache_dir=model_args.cache_dir,
+                revision=model_args.model_revision,
+                use_auth_token=True if model_args.use_auth_token else None,
+            )
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
-    model = AutoModelForRelationExtraction.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-        cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )

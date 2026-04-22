@@ -270,3 +270,11 @@ Thumbs.db
 
 LiLTfinetune/data/datasets/*.lock
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,pycharm+all
+
+# ============================================================================
+# Artefatos locais de treino/inferência
+# ============================================================================
+predictions/
+tag.txt
+# dataset symlink (aponta para ../xfund&funsd no repo pai)
+xfund&funsd

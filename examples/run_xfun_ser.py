@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-from datasets import ClassLabel, load_dataset, load_metric
+from datasets import ClassLabel, load_dataset
 
 import LiLTfinetune.data.datasets.xfun
 import transformers
@@ -27,11 +27,10 @@ from transformers import (
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
-from transformers.utils import check_min_version
+from seqeval.metrics import classification_report, f1_score, precision_score, recall_score
 
 
-# Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.5.0")
+# check_min_version removido — compatível com transformers 5.x
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +188,7 @@ def main():
         max_length=512,
     )
 
-    # Metrics
-    metric = load_metric("seqeval")
+    # Metrics — usando seqeval diretamente (datasets 1.x não é compatível com evaluate)
 
     def compute_metrics(p):
         predictions, labels = p
@@ -206,24 +204,11 @@ def main():
             for prediction, label in zip(predictions, labels)
         ]
 
-        results = metric.compute(predictions=true_predictions, references=true_labels)
-        if data_args.return_entity_level_metrics:
-            # Unpack nested dictionaries
-            final_results = {}
-            for key, value in results.items():
-                if isinstance(value, dict):
-                    for n, v in value.items():
-                        final_results[f"{key}_{n}"] = v
-                else:
-                    final_results[key] = value
-            return final_results
-        else:
-            return {
-                "precision": results["overall_precision"],
-                "recall": results["overall_recall"],
-                "f1": results["overall_f1"],
-                "accuracy": results["overall_accuracy"],
-            }
+        return {
+            "precision": precision_score(true_labels, true_predictions),
+            "recall": recall_score(true_labels, true_predictions),
+            "f1": f1_score(true_labels, true_predictions),
+        }
 
     # Initialize our Trainer
     trainer = XfunSerTrainer(

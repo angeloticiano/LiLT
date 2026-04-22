@@ -4,6 +4,7 @@ import logging
 import os
 
 import datasets
+import ijson
 
 from LiLTfinetune.data.utils import load_image, merge_bbox, normalize_bbox, simplify_bbox
 from transformers import AutoTokenizer
@@ -11,7 +12,7 @@ from transformers import AutoTokenizer
 
 _URL = "https://github.com/doc-analysis/XFUN/releases/download/v1.0/"
 
-_LANG = ["zh", "de", "es", "fr", "en", "it", "ja", "pt", "boleto_test", "synth_pt"]
+_LANG = ["synth_train_3k", "synth_heldout_lang_300", "synth_heldout_schema_300", "synth_prod_20k", "synth_prod_heldout_2k"]
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +46,7 @@ class XFUN(datasets.GeneratorBasedBuilder):
                     "bbox": datasets.Sequence(datasets.Sequence(datasets.Value("int64"))),
                     "labels": datasets.Sequence(
                         datasets.ClassLabel(
-                            names=["O", "B-QUESTION", "B-ANSWER", "B-HEADER", "I-ANSWER", "I-QUESTION", "I-HEADER"]
+                            names=["O", "B-QUESTION", "B-ANSWER", "I-ANSWER", "I-QUESTION"]
                         )
                     ),
                     "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
@@ -53,7 +54,7 @@ class XFUN(datasets.GeneratorBasedBuilder):
                         {
                             "start": datasets.Value("int64"),
                             "end": datasets.Value("int64"),
-                            "label": datasets.ClassLabel(names=["HEADER", "QUESTION", "ANSWER"]),
+                            "label": datasets.ClassLabel(names=["QUESTION", "ANSWER"]),
                         }
                     ),
                     "relations": datasets.Sequence(
@@ -109,10 +110,14 @@ class XFUN(datasets.GeneratorBasedBuilder):
     def _generate_examples(self, filepaths):
         for filepath in filepaths:
             logger.info("Generating examples from = %s", filepath)
-            with open(filepath[0], "r") as f:
-                data = json.load(f)
+            f = open(filepath[0], "rb")
+            try:
+                docs_iter = ijson.items(f, "documents.item")
+            except Exception:
+                f.close()
+                raise
 
-            for doc in data["documents"]:
+            for doc in docs_iter:
                 doc["img"]["fpath"] = os.path.join(filepath[1], doc["img"]["fname"])
                 image, size = load_image(doc["img"]["fpath"])
                 document = doc["document"]
@@ -257,3 +262,4 @@ class XFUN(datasets.GeneratorBasedBuilder):
                         }
                     )
                     yield f"{doc['id']}_{chunk_id}", item
+            f.close()
