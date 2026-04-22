@@ -15,9 +15,17 @@ except ImportError:
         from transformers.utils import is_sagemaker_mp_enabled  # transformers 5+
     except ImportError:
         def is_sagemaker_mp_enabled(): return False  # removed in some versions
-from transformers.trainer_utils import EvalPrediction, PredictionOutput, speed_metrics, ShardedDDPOption
+from transformers.trainer_utils import EvalPrediction, PredictionOutput, speed_metrics
+# PATCH §3.1: ShardedDDPOption removido em transformers 4.45+. Import defensivo.
+try:
+    from transformers.trainer_utils import ShardedDDPOption  # type: ignore
+except ImportError:
+    ShardedDDPOption = None  # type: ignore
 from transformers.trainer_pt_utils import get_parameter_names
-from transformers.optimization import Adafactor, AdamW, get_scheduler
+from transformers.optimization import Adafactor, get_scheduler
+# PATCH §3.1: transformers.AdamW não implementa .train()/.eval() exigidos pelo
+# accelerate 0.33+. Usar torch.optim.AdamW (compatível e recomendado).
+from torch.optim import AdamW
 
 from .funsd_trainer import FunsdTrainer
 
@@ -48,8 +56,14 @@ class XfunReTrainer(FunsdTrainer):
         inputs = self._prepare_inputs(inputs)
 
         with torch.no_grad():
-            # PATCH: use_amp renomeado para use_apex no transformers>=4.10
-            _use_amp = getattr(self, 'use_amp', False) or getattr(self, 'use_apex', False)
+            # PATCH §3.1: use_amp/use_apex removidos em transformers 4.45+;
+            # accelerator faz autocast automaticamente no compute_loss.
+            # Shim defensivo cobre 4.30 (ainda tem use_amp) e 4.45+ (removido).
+            _use_amp = (
+                getattr(self, "use_cuda_amp", False)
+                or getattr(self, "use_amp", False)
+                or getattr(self, "use_apex", False)
+            )
             if _use_amp:
                 with autocast():
                     outputs = model(**inputs)
@@ -82,7 +96,12 @@ class XfunReTrainer(FunsdTrainer):
             # flagging only for when --do_train wasn't passed as only then it's redundant
             logger.info("Detected the deepspeed argument but it will not be used for evaluation")
 
-        model = self._wrap_model(self.model, training=False)
+        # PATCH §3.1: _wrap_model deprecated em transformers 4.42+; usar
+        # accelerator.prepare_model com evaluation_mode quando disponível.
+        if hasattr(self, "accelerator"):
+            model = self.accelerator.prepare_model(self.model, evaluation_mode=True)
+        else:
+            model = self._wrap_model(self.model, training=False)
 
         # if full fp16 is wanted on eval and this ``evaluation`` or ``predict`` isn't called while
         # ``train`` is running, half it first and then put on device
@@ -249,7 +268,14 @@ class XfunReTrainer(FunsdTrainer):
                     "eps": self.args.adam_epsilon,
                 }
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            # PATCH §3.1: sharded_ddp removido em transformers 4.45+. Branch
+            # dead-code em treino single-GPU; caminho padrão é o optimizer direto.
+            _use_sharded = (
+                ShardedDDPOption is not None
+                and hasattr(self, "sharded_ddp")
+                and getattr(self, "sharded_ddp", None) == ShardedDDPOption.SIMPLE
+            )
+            if _use_sharded:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,

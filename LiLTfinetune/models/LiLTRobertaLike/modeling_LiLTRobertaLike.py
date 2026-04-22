@@ -666,6 +666,11 @@ class LiLTRobertaLikePreTrainedModel(PreTrainedModel):
     config_class = LiLTRobertaLikeConfig
     base_model_prefix = "liltrobertalike"
     _all_tied_weights_keys: list = []  # required for transformers 5.x
+    # PATCH §3.4: habilita attn_implementation="flash_attention_2"/"sdpa" no
+    # from_pretrained (transformers 4.45+). Cobre todas as subclasses
+    # (Model, ForTokenClassification, ForRelationExtraction, ForJoint, ForJointKIE).
+    _supports_flash_attn_2 = True
+    _supports_sdpa = True
 
     def get_head_mask(self, head_mask, num_hidden_layers, is_attention_chunked=False):
         """Compatibility shim: get_head_mask removed from PreTrainedModel in transformers 5.x."""

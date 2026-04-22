@@ -6,7 +6,7 @@ import os
 import datasets
 import ijson
 
-from LiLTfinetune.data.utils import load_image, merge_bbox, normalize_bbox, simplify_bbox
+from LiLTfinetune.data.utils import merge_bbox, normalize_bbox, simplify_bbox
 from transformers import AutoTokenizer
 
 
@@ -49,7 +49,7 @@ class XFUN(datasets.GeneratorBasedBuilder):
                             names=["O", "B-QUESTION", "B-ANSWER", "I-ANSWER", "I-QUESTION"]
                         )
                     ),
-                    "image": datasets.Array3D(shape=(3, 224, 224), dtype="uint8"),
+                    # PATCH §3.5: feature `image` removida (LiLT não usa pixels).
                     "entities": datasets.Sequence(
                         {
                             "start": datasets.Value("int64"),
@@ -118,8 +118,9 @@ class XFUN(datasets.GeneratorBasedBuilder):
                 raise
 
             for doc in docs_iter:
-                doc["img"]["fpath"] = os.path.join(filepath[1], doc["img"]["fname"])
-                image, size = load_image(doc["img"]["fpath"])
+                # PATCH §3.5: size vem do JSON (synth-kie grava width/height);
+                # LiLT não consome pixels, então evitamos I/O de PNG.
+                size = (doc["img"]["width"], doc["img"]["height"])
                 document = doc["document"]
                 tokenized_doc = {"input_ids": [], "bbox": [], "labels": []}
                 entities = []
@@ -256,7 +257,7 @@ class XFUN(datasets.GeneratorBasedBuilder):
                     item.update(
                         {
                             "id": f"{doc['id']}_{chunk_id}",
-                            "image": image,
+                            # PATCH §3.5: "image" removido do exemplo.
                             "entities": entities_in_this_span,
                             "relations": relations_in_this_span,
                         }

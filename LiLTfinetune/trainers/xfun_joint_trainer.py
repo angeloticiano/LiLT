@@ -62,7 +62,13 @@ class XfunJointTrainer(XfunReTrainer):
         # (o _prepare_inputs move tensors para device mas mantém listas Python)
 
         with torch.no_grad():
-            _use_amp = getattr(self, "use_amp", False) or getattr(self, "use_apex", False)
+            # PATCH §3.2: shim cobre transformers 4.30 (use_amp/use_apex) e
+            # 4.45+ (use_cuda_amp ou nada — accelerator faz autocast sozinho).
+            _use_amp = (
+                getattr(self, "use_cuda_amp", False)
+                or getattr(self, "use_amp", False)
+                or getattr(self, "use_apex", False)
+            )
             if _use_amp:
                 from torch.cuda.amp import autocast
                 with autocast():
@@ -94,7 +100,11 @@ class XfunJointTrainer(XfunReTrainer):
         if not isinstance(dataloader.dataset, collections.abc.Sized):
             raise ValueError("dataset must implement __len__")
 
-        model = self._wrap_model(self.model, training=False)
+        # PATCH §3.2: _wrap_model deprecated em 4.42+; preferir accelerator.
+        if hasattr(self, "accelerator"):
+            model = self.accelerator.prepare_model(self.model, evaluation_mode=True)
+        else:
+            model = self._wrap_model(self.model, training=False)
         if not self.is_in_train and self.args.fp16_full_eval:
             model = model.half().to(self.args.device)
 
