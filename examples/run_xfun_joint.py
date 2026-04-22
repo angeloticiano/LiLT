@@ -46,6 +46,20 @@ from LiLTfinetune.models.LiLTRobertaLike import (
     LiLTRobertaLikeForJoint,
 )
 from LiLTfinetune.models.model_args import ModelArguments
+
+# Override opcional do attn_implementation via env var.
+# Valores válidos: "eager" (default), "sdpa", "flash_attention_2".
+# Aplicado a TODAS as instâncias de LiLTRobertaLikeConfig criadas depois daqui.
+_ATTN_IMPL_OVERRIDE = os.environ.get("LILT_ATTN_IMPL", "").strip()
+if _ATTN_IMPL_OVERRIDE:
+    _original_config_init = LiLTRobertaLikeConfig.__init__
+
+    def _patched_config_init(self, *args, **kwargs):
+        kwargs.setdefault("attn_implementation", _ATTN_IMPL_OVERRIDE)
+        _original_config_init(self, *args, **kwargs)
+
+    LiLTRobertaLikeConfig.__init__ = _patched_config_init
+    print(f"[run_xfun_joint] attn_implementation override: {_ATTN_IMPL_OVERRIDE}")
 from LiLTfinetune.trainers.xfun_joint_trainer import XfunJointTrainer
 from huggingface_hub import hf_hub_download
 from transformers import (
